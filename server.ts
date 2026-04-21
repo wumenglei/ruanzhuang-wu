@@ -22,8 +22,18 @@ const proxyRequest = async (req: express.Request, res: express.Response, targetP
       url: targetUrl,
       data: req.body,
       headers: { 'Content-Type': 'application/json' },
-      timeout: 10000, // 10s timeout
+      timeout: 15000, // 15s timeout
     });
+    
+    // Ensure the response is actually JSON if we are going to send it as such
+    if (typeof response.data === 'string' && (response.data.trim().startsWith('<') || response.data.trim().startsWith('The page'))) {
+      console.warn(`[Proxy] Target returned non-JSON for successful status ${response.status}`);
+      return res.status(response.status || 200).json({
+        success: false,
+        message: `SaaS 服务返回了非 JSON 响应。请检查 SaaS 后端配置。`
+      });
+    }
+
     console.log(`[Proxy] Success: ${response.status}`);
     res.status(response.status).json(response.data);
   } catch (error: any) {
@@ -31,11 +41,17 @@ const proxyRequest = async (req: express.Request, res: express.Response, targetP
     const errorData = error.response?.data;
     console.error(`[Proxy] Error ${status} for ${targetPath}:`, error?.message);
     
-    // If the target returns HTML or something else, we still want to return JSON to the frontend
-    if (typeof errorData === 'string' && errorData.includes('<!DOCTYPE html>')) {
+    // Comprehensive check for non-JSON error responses
+    const isHtml = typeof errorData === 'string' && (
+      errorData.includes('<!DOCTYPE html>') || 
+      errorData.includes('<html') || 
+      errorData.includes('The page')
+    );
+
+    if (isHtml) {
       return res.status(status).json({
         success: false,
-        message: `SaaS 服务返回了非 JSON 响应 (${status})。可能是地址错误或授权失效。`
+        message: `SaaS 服务返回了非 JSON 响应 (${status})。可能是地址错误、路径不存在或后端服务异常。`
       });
     }
 
