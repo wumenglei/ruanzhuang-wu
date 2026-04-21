@@ -1,0 +1,6 @@
+{
+  "name": "床具摆放助手",
+  "description": "专业级床具场景生成助手。上传床具图片，自动生成高清全景、中近景及细节特写效果图，支持多种风格定制。",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
