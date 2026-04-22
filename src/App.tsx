@@ -7,7 +7,7 @@ import { generateScene, AspectRatio, ImageSize } from "./lib/gemini";
 import { SaasService, SaasUser, SaasTool } from "./lib/saas";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Sparkles, Wand2, Info, Maximize2, RefreshCw, ArrowLeft, User, Coins } from "lucide-react";
+import { Sparkles, Wand2, Info, Maximize2, RefreshCw, User, Coins, ArrowLeft } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import { motion } from "motion/react";
@@ -29,7 +29,7 @@ export default function App() {
   const [saasTool, setSaasTool] = useState<SaasTool | null>(null);
 
   useEffect(() => {
-    // Step 1: Launch - Initialized via message event or URL
+    // 1. SaaS Launch (First Step in 3-step flow)
     SaasService.init(() => {
       const launchData = SaasService.getLaunchData();
       if (launchData) {
@@ -47,15 +47,13 @@ export default function App() {
 
     setIsGenerating(true);
     try {
-      // Step 2: Verify - Only check if credit is enough, don't deduct yet
+      // 2. SaaS Verify (Second Step in 3-step flow)
       await SaasService.verify();
 
-      // Implement Prompt Merging: Final Prompt = Analyzed Style + Custom Prompt + SaaS Context + SaaS Keywords
+      // 3. Prompt Merging Logic
       const initData = SaasService.getInitData();
       const s_context = initData?.context || "";
       const s_prompt = initData?.prompt?.join(", ") || "";
-      
-      // We combine custom prompt with SaaS data. Analyzed style is passed separately to generateScene
       const combinedPrompt = `${customPrompt} ${s_context} ${s_prompt}`.trim();
 
       const panoramic = await generateScene({
@@ -78,14 +76,10 @@ export default function App() {
       });
       setMidRangeImage(midRange);
 
-      // Step 3: Consume - Deduct credit after generation is successful
+      // 4. SaaS Consume (Final Step in 3-step flow)
       await SaasService.consume();
-      
-      // Update local integral display
       const updatedLaunch = SaasService.getLaunchData();
-      if (updatedLaunch) {
-        setSaasUser({ ...updatedLaunch.user });
-      }
+      if (updatedLaunch) setSaasUser({ ...updatedLaunch.user });
 
       toast.success("场景生成成功！");
     } catch (error: any) {

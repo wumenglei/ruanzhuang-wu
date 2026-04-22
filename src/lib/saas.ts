@@ -1,6 +1,5 @@
 /**
- * SaaS Service for handling integral validation and consumption.
- * Following the 3-Step Flow defined in API_SPEC.md
+ * SaaS 接口对接与积分校验服务 (V4-3Step)
  */
 
 export interface SaasUser {
@@ -27,146 +26,90 @@ export class SaasService {
   private static launchData: { user: SaasUser; tool: SaasTool } | null = null;
 
   /**
-   * Listen for postMessage to initialize SaaS data
+   * 初始化：监听 postMessage 信号并自动执行 launch
    */
   static init(onReady: () => void) {
     const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'SAAS_INIT') {
+      if (event.data && event.data.type === 'SAAS_INIT') {
         const { userId, toolId, context, prompt, callbackUrl } = event.data;
         
-        // Filter out "null" or "undefined" strings as per spec
-        if (!userId || userId === 'null' || userId === 'undefined') return;
-        if (!toolId || toolId === 'null' || toolId === 'undefined') return;
+        // 过滤无效 ID
+        if (userId === "null" || userId === "undefined" || !userId) return;
+        if (toolId === "null" || toolId === "undefined" || !toolId) return;
 
         this.initData = { userId, toolId, context, prompt, callbackUrl };
-        console.log('[SaaS] Initialized:', this.initData);
+        console.log("SaaS Init Received:", this.initData);
         
-        // Step 1: Launch
-        this.launch().then(onReady).catch(err => {
-          console.error('[SaaS] Launch failed:', err);
-          onReady(); // Continue even if launch fails to allow local testing
-        });
+        // 自动触发启动接口
+        this.launch().then(onReady).catch(console.error);
       }
     };
 
     window.addEventListener('message', handleMessage);
     
-    // Check if we already have data in URL (optional fallback)
+    // 同时也尝试从 URL 参数中获取（兼容某些嵌入方式）
     const urlParams = new URLSearchParams(window.location.search);
     const userId = urlParams.get('userId');
     const toolId = urlParams.get('toolId');
-    if (userId && toolId) {
+    if (userId && toolId && userId !== "null" && toolId !== "null") {
       this.initData = { userId, toolId };
-      this.launch().then(onReady);
+      this.launch().then(onReady).catch(console.error);
     }
   }
 
   /**
-   * Step 1: Launch - Initialize user and tool data
+   * 调用后台代理接口
    */
-  private static async launch() {
-    if (!this.initData) return;
-    
-    try {
-      const response = await fetch('/api/tool/launch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: this.initData.userId,
-          toolId: this.initData.toolId
-        })
-      });
-      
-      const text = await response.text();
-      let result;
-      try {
-        result = JSON.parse(text);
-      } catch (e) {
-        console.error('[SaaS] Launch: Received non-JSON response:', text);
-        return;
-      }
+  private static async request(path: string, body: any) {
+    // 改为相对路径，由本地 server.ts 代理转发
+    const response = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
 
-      if (result.success) {
-        this.launchData = result.data;
-      }
-    } catch (error) {
-      console.error('[SaaS] Error in launch:', error);
+    const result = await response.json();
+    if (!result.success) {
+      throw new Error(result.message || "SaaS 接口请求失败");
     }
+    return result.data;
   }
 
   /**
-   * Step 2: Verify - Check if user has enough integral
+   * 1. 启动阶段
+   */
+  static async launch() {
+    if (!this.initData) return null;
+    const data = await this.request("/api/tool/launch", {
+      userId: this.initData.userId,
+      toolId: this.initData.toolId
+    });
+    this.launchData = data;
+    return data;
+  }
+
+  /**
+   * 2. 校验阶段 (不扣分)
    */
   static async verify() {
-    if (!this.initData) return; // Skip if not in SaaS environment
-
-    try {
-      const response = await fetch('/api/tool/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: this.initData.userId,
-          toolId: this.initData.toolId
-        })
-      });
-
-      const text = await response.text();
-      let result;
-      try {
-        result = JSON.parse(text);
-      } catch (e) {
-        throw new Error(`SaaS 服务返回了异常响应（非 JSON 格式）。请联系管理员检查后端接口。回应内容：${text.substring(0, 100)}...`);
-      }
-
-      if (!result.success) {
-        throw new Error(result.message || '积分不足');
-      }
-      return result.data;
-    } catch (error: any) {
-      console.error('[SaaS] Error in verify:', error);
-      throw error;
-    }
+    if (!this.initData) return true; // 未启用 SaaS 则跳过
+    return await this.request("/api/tool/verify", {
+      userId: this.initData.userId,
+      toolId: this.initData.toolId
+    });
   }
 
   /**
-   * Step 3: Consume - Deduct integral after success
+   * 3. 扣费阶段 (生成成功后)
    */
   static async consume() {
-    if (!this.initData) return;
-
-    try {
-      const response = await fetch('/api/tool/consume', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: this.initData.userId,
-          toolId: this.initData.toolId
-        })
-      });
-
-      const text = await response.text();
-      let result;
-      try {
-        result = JSON.parse(text);
-      } catch (e) {
-        console.error('[SaaS] Consume: Received non-JSON response:', text);
-        return;
-      }
-
-      if (result.success && this.launchData) {
-        this.launchData.user.integral = result.data.currentIntegral;
-      }
-      return result.data;
-    } catch (error) {
-      console.error('[SaaS] Error in consume:', error);
-    }
+    if (!this.initData) return null;
+    return await this.request("/api/tool/consume", {
+      userId: this.initData.userId,
+      toolId: this.initData.toolId
+    });
   }
 
-  static getLaunchData() {
-    return this.launchData;
-  }
-
-  static getInitData() {
-    return this.initData;
-  }
+  static getInitData() { return this.initData; }
+  static getLaunchData() { return this.launchData; }
 }

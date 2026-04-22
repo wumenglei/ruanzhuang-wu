@@ -22,21 +22,8 @@ const proxyRequest = async (req: express.Request, res: express.Response, targetP
       url: targetUrl,
       data: req.body,
       headers: { 'Content-Type': 'application/json' },
-      timeout: 20000, // Increased to 20s
+      timeout: 10000, // 10s timeout
     });
-    
-    // Explicitly handle cases where target returns a string that starts with "The page" or "<"
-    if (typeof response.data === 'string') {
-      const trimmed = response.data.trim();
-      if (trimmed.startsWith('<') || trimmed.startsWith('The page')) {
-        console.warn(`[Proxy] Target successful status ${response.status} but content is HTML/Text:`, trimmed.substring(0, 100));
-        return res.status(response.status || 200).json({
-          success: false,
-          message: `SaaS 服务地址正确但返回了非 JSON 页面内容。可能是由于服务未启动或被拦截。`
-        });
-      }
-    }
-
     console.log(`[Proxy] Success: ${response.status}`);
     res.status(response.status).json(response.data);
   } catch (error: any) {
@@ -44,21 +31,17 @@ const proxyRequest = async (req: express.Request, res: express.Response, targetP
     const errorData = error.response?.data;
     console.error(`[Proxy] Error ${status} for ${targetPath}:`, error?.message);
     
-    // Comprehensive check for ANY non-JSON strings in error block
-    if (typeof errorData === 'string') {
-      const trimmed = errorData.trim();
-      if (trimmed.startsWith('<') || trimmed.startsWith('The page') || trimmed.includes('DOCTYPE')) {
-        console.error(`[Proxy] backend returned raw HTML on error:`, trimmed.substring(0, 100));
-        return res.status(status).json({
-          success: false,
-          message: `SaaS 服务接口地址失效或返回错误页面 (HTTP ${status})。请检查后端 API 状态。`
-        });
-      }
+    // If the target returns HTML or something else, we still want to return JSON to the frontend
+    if (typeof errorData === 'string' && errorData.includes('<!DOCTYPE html>')) {
+      return res.status(status).json({
+        success: false,
+        message: `SaaS 服务返回了非 JSON 响应 (${status})。可能是地址错误或授权失效。`
+      });
     }
 
     res.status(status).json(errorData || { 
       success: false, 
-      message: error.message || "SaaS 代理请求链路中断" 
+      message: error.message || "SaaS 代理转发请求失败" 
     });
   }
 };
