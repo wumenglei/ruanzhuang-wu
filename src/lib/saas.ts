@@ -77,14 +77,15 @@ export class SaasService {
         })
       });
       
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const text = await response.text();
-        console.error('[SaaS] Received non-JSON response:', text);
+      const text = await response.text();
+      let result;
+      try {
+        result = JSON.parse(text);
+      } catch (e) {
+        console.error('[SaaS] Launch: Received non-JSON response:', text);
         return;
       }
 
-      const result = await response.json();
       if (result.success) {
         this.launchData = result.data;
       }
@@ -109,12 +110,14 @@ export class SaasService {
         })
       });
 
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        throw new Error('SaaS 服务接口没有返回正确的 JSON 数据（可能是由于 404 错误或服务维护）。');
+      const text = await response.text();
+      let result;
+      try {
+        result = JSON.parse(text);
+      } catch (e) {
+        throw new Error(`SaaS 服务返回了异常响应（非 JSON 格式）。请联系管理员检查后端接口。回应内容：${text.substring(0, 100)}...`);
       }
 
-      const result = await response.json();
       if (!result.success) {
         throw new Error(result.message || '积分不足');
       }
@@ -141,13 +144,15 @@ export class SaasService {
         })
       });
 
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        console.error('[SaaS] Consume failed: Non-JSON response');
+      const text = await response.text();
+      let result;
+      try {
+        result = JSON.parse(text);
+      } catch (e) {
+        console.error('[SaaS] Consume: Received non-JSON response:', text);
         return;
       }
 
-      const result = await response.json();
       if (result.success && this.launchData) {
         this.launchData.user.integral = result.data.currentIntegral;
       }
